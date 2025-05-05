@@ -15,11 +15,13 @@ const realSearchPrompt = process.env.RealSearchPrompt;
 const deepJudgePrompt = process.env.DeepJudgePrompt;
 const paperGenerationPrompt = process.env.PaperGenerationPrompt;
 const timePromptTemplate = process.env.TimePrompt; // 新增：加载时间提示模板
+const deepLoopLimit = parseInt(process.env.DeepLoop) || 5; // 读取深度上限，默认5
 
 // --- 工作流状态管理 ---
 let currentState = 'INITIAL_CHAT'; // 'INITIAL_CHAT', 'GENERATING_KEYWORDS', 'SEARCHING', 'JUDGING_DEPTH', 'GENERATING_REPORT', 'FINISHED'
 let conversationHistory = []; // 完整的对话历史，供强模型使用
 let researchPlan = null; // NovaAI 生成的研究计划
+let researchLoopCount = 0; // 新增：研究循环计数器
 let keywordsToSearch = []; // 待搜索的关键词列表
 let searchResults = {}; // 存储搜索结果 { keyword: [result1, result2, ...] }
 let accumulatedInfo = []; // 存储所有检索到的信息和中间步骤，用于报告生成
@@ -349,7 +351,8 @@ async function performSearch() {
 
 
 async function judgeDepth() {
-    console.log('Workflow State: JUDGING_DEPTH');
+    researchLoopCount++; // 进入判断即增加循环计数
+    console.log(`Workflow State: JUDGING_DEPTH (Loop ${researchLoopCount}/${deepLoopLimit})`);
 
     // 准备给深度判断器的消息 (ThinkModel)
     let collectedResultsText = "已收集到的搜索结果:\n";
@@ -379,8 +382,17 @@ async function judgeDepth() {
 
     if (judgeReply.type === 'content') {
         // 将判断器的最终输出加入历史
-        addMessageToHistory('assistant', `深度判断器:\n${judgeReply.content}`, 'think');
+        addMessageToHistory('assistant', `深度判断器 (循环 ${researchLoopCount}):\n${judgeReply.content}`, 'think');
 
+        // 优先检查循环上限
+        if (researchLoopCount >= deepLoopLimit) {
+            console.log(`Deep research loop limit (${deepLoopLimit}) reached. Forcing report generation.`);
+            currentState = 'GENERATING_REPORT';
+            // 返回判断内容，并附加达到上限的提示
+            return `${judgeReply.content}\n\n***\n研究深度达到上限 (${researchLoopCount}/${deepLoopLimit})，强制生成最终报告...`;
+        }
+
+        // 如果未达上限，再检查模型的判断
         if (judgeReply.content.includes('[[DeepResearchEnd]]')) {
             console.log('Deep Research Ended by Judger.');
             currentState = 'GENERATING_REPORT';
@@ -464,10 +476,16 @@ async function generateReport() {
             { role: 'user', content: finalReportContext }
         ];
 
-        console.log(`Calling API (${thinkModel}) for report generation with potential search...`);
-        // 使用新的辅助函数调用 ThinkModel，允许搜索
+        console.log(`Calling API (${thinkModel}) for report generation (Search Tool Disabled)...`); // 更新日志信息
+        // 直接调用 apiHelper，并明确禁用搜索工具
         // 允许较长的报告生成时间
-        const reportReply = await callThinkModelWithSearchHandling(reportMessages, thinkModelTemp, thinkModelMaxTokens * 2);
+        const reportReply = await apiHelper.callApi(
+            thinkModel,
+            reportMessages,
+            thinkModelTemp,
+            thinkModelMaxTokens * 2, // 保持较大的 maxTokens
+            false // <--- 明确禁用搜索工具
+        );
 
         if (reportReply.type === 'content') {
             console.log('Successfully generated report (potentially after search).');
@@ -504,6 +522,7 @@ function resetWorkflow() {
     searchResults = {};
     accumulatedInfo = [];
     latestReportContent = null; // 重置时清除报告
+    researchLoopCount = 0; // 重置循环计数器
     console.log('Workflow reset.');
     // 可能需要返回一个消息给前端
     return "新的研究会话已准备就绪。";
