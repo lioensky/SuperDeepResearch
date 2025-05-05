@@ -9,6 +9,11 @@ const fastModel = process.env.FastModel;
 const fastModelTemp = parseFloat(process.env.FastModelTemp);
 const fastModelMaxTokens = parseInt(process.env.FastModelMaxTokens);
 
+// 新增：加载报告生成模型配置
+const paperModel = process.env.PaperModel;
+const paperModelTemp = parseFloat(process.env.PaperModelTemp);
+const paperModelMaxTokens = parseInt(process.env.PaperModelMaxTokens);
+
 const deepResearchPrompt = process.env.DeepResearchPrompt;
 const choicePrompt = process.env.ChoicePrompt;
 const realSearchPrompt = process.env.RealSearchPrompt;
@@ -476,15 +481,15 @@ async function generateReport() {
             { role: 'user', content: finalReportContext }
         ];
 
-        console.log(`Calling API (${thinkModel}) for report generation (Search Tool Disabled)...`); // 更新日志信息
-        // 直接调用 apiHelper，并明确禁用搜索工具
+        console.log(`Calling API (${paperModel}) for report generation (Search Tool Disabled)...`); // 使用 PaperModel
+        // 直接调用 apiHelper，使用 PaperModel 配置，并明确禁用搜索工具
         // 允许较长的报告生成时间
         const reportReply = await apiHelper.callApi(
-            thinkModel,
+            paperModel,             // 使用 PaperModel 名称
             reportMessages,
-            thinkModelTemp,
-            thinkModelMaxTokens * 2, // 保持较大的 maxTokens
-            false // <--- 明确禁用搜索工具
+            paperModelTemp,         // 使用 PaperModel 温度
+            paperModelMaxTokens,    // 使用 PaperModel maxTokens
+            false                   // <--- 明确禁用搜索工具
         );
 
         if (reportReply.type === 'content') {

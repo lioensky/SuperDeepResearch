@@ -36,7 +36,8 @@ app.post('/api/chat', async (req, res) => {
             aiReply.includes('正在进行深度判断...') ||   // 中间状态提示
             aiReply.includes('将根据指示继续搜索新关键词:') || // 中间状态提示
             aiReply.includes('正在生成最终报告...') ||     // 正常进入报告生成
-            aiReply.includes('正在尝试生成最终报告...')   // 出错后尝试进入报告生成
+            aiReply.includes('正在尝试生成最终报告...') || // 出错后尝试进入报告生成
+            aiReply.includes('强制生成最终报告...')       // 新增：达到深度上限时强制进入报告生成
            ) {
              // 如果是这些中间状态，我们再次调用 handleMessage (不带用户输入) 来驱动流程
              console.log(`Workflow indicates progression. Triggering next step... (Previous reply ended with: "...${aiReply.slice(-30)}")`);
@@ -91,4 +92,5 @@ app.listen(port, () => {
     console.log('API URL:', process.env.API_URL);
     console.log('Think Model:', process.env.ThinkModel);
     console.log('Fast Model:', process.env.FastModel);
+    console.log('Paper Model:', process.env.PaperModel); // 新增：打印 PaperModel 名称
 });
