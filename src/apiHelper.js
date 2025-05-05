@@ -26,69 +26,116 @@ async function callApi(modelName, messages, temperature, maxTokens, useSearchToo
         'Content-Type': 'application/json',
     };
 
-    const requestBody = {
+    // --- First API Call ---
+    const firstRequestBody = {
         model: modelName,
         messages: messages,
         temperature: temperature,
         max_tokens: maxTokens,
-        // stream: false, // 暂时不使用流式传输
     };
 
-    // 根据需要添加工具 (如果 useSearchTool 为 true)
-    // 注意：这里的工具定义需要与 Gemini API 的 WebSearchFunctionTool 匹配
-    // 具体的 'google_search' 名称和参数结构可能需要根据实际 API 文档调整
-    if (useSearchTool) { // 移除 modelName === process.env.FastModel 的限制
-        requestBody.tools = [
+    // Add tools definition ONLY if useSearchTool is true for the first call
+    if (useSearchTool) {
+        firstRequestBody.tools = [
             {
                 type: "function",
                 function: {
-                    name: "google_search", // 假设这是 Gemini API WebSearchFunctionTool 的名称
+                    name: "google_search", // Tool name expected by the proxy/model
                     description: "Performs a Google search and returns results.",
-                    parameters: { // 参数结构可能需要调整
+                    parameters: {
                         type: "object",
                         properties: {
-                            query: {
-                                type: "string",
-                                description: "The search query."
-                            }
+                            query: { type: "string", description: "The search query." }
                         },
                         required: ["query"]
                     }
                 }
             }
         ];
-        requestBody.tool_choice = "auto"; // 让模型决定何时使用工具
+        firstRequestBody.tool_choice = "auto";
     }
 
-    console.log(`Calling API: ${modelName} with ${messages.length} messages. Use Search: ${useSearchTool}`);
-    // console.log('Request Body:', JSON.stringify(requestBody, null, 2)); // Debugging
+    console.log(`Calling API (1st call): ${modelName} with ${messages.length} messages. Use Search Tool: ${useSearchTool}`);
+    // console.log('First Request Body:', JSON.stringify(firstRequestBody, null, 2));
 
     try {
-        const response = await axios.post(`${API_URL}/v1/chat/completions`, requestBody, { headers });
+        let response = await axios.post(`${API_URL}/v1/chat/completions`, firstRequestBody, { headers });
+        // console.log('First API Response:', JSON.stringify(response.data, null, 2));
 
-        // console.log('API Response:', JSON.stringify(response.data, null, 2)); // Debugging
-
-        if (response.data && response.data.choices && response.data.choices.length > 0) {
-            const choice = response.data.choices[0];
-            const message = choice.message;
-
-            if (message.tool_calls && message.tool_calls.length > 0) {
-                // 检测到工具调用 (例如 google_search)
-                console.log(`Tool call detected: ${message.tool_calls[0].function.name}`);
-                return { type: 'tool_call', tool_call: message.tool_calls[0] }; // 返回第一个工具调用信息
-            } else if (message.content) {
-                // 普通文本响应
-                return { type: 'content', content: message.content.trim() };
-            } else {
-                console.warn('API response choice message has no content or tool_calls:', choice);
-                return { type: 'error', error: 'Unexpected API response format (no content/tool_call).' };
-            }
-        } else {
-            console.error('Invalid API response structure:', response.data);
-            return { type: 'error', error: 'Invalid API response structure.' };
+        if (!response.data || !response.data.choices || response.data.choices.length === 0) {
+            console.error('Invalid API response structure (1st call):', response.data);
+            return { type: 'error', error: 'Invalid API response structure (1st call).' };
         }
+
+        const firstChoice = response.data.choices[0];
+        const firstMessage = firstChoice.message;
+
+        // --- Check for Tool Calls ---
+        if (firstChoice.finish_reason === 'tool_calls' && firstMessage?.tool_calls) {
+            console.log(`Tool call detected by API: ${firstMessage.tool_calls[0].function.name}. Preparing second call.`);
+
+            const messagesForSecondCall = [
+                ...messages, // Original messages
+                firstMessage, // Assistant's message requesting tool call(s)
+            ];
+
+            // Add placeholder tool results for the second call
+            for (const toolCall of firstMessage.tool_calls) {
+                 if (toolCall.type === 'function' && toolCall.function.name === 'google_search') {
+                     const toolCallId = toolCall.id;
+                     const functionArgs = toolCall.function.arguments;
+                     console.log(`Constructing tool result for call_id: ${toolCallId}, args: ${functionArgs}`);
+                     messagesForSecondCall.push({
+                         role: 'tool',
+                         tool_call_id: toolCallId,
+                         name: 'google_search',
+                         // Content can be simple confirmation, proxy handles actual execution.
+                         content: `[Tool call processed for google_search with args: ${functionArgs}]`,
+                     });
+                 }
+            }
+
+            // --- Second API Call ---
+            const secondRequestBody = {
+                model: modelName,
+                messages: messagesForSecondCall,
+                temperature: temperature,
+                max_tokens: maxTokens,
+                // DO NOT include 'tools' or 'tool_choice' in the second call
+            };
+
+            console.log(`Calling API (2nd call): ${modelName} with ${messagesForSecondCall.length} messages.`);
+            // console.log('Second Request Body:', JSON.stringify(secondRequestBody, null, 2));
+
+            response = await axios.post(`${API_URL}/v1/chat/completions`, secondRequestBody, { headers });
+            // console.log('Second API Response:', JSON.stringify(response.data, null, 2));
+
+            if (!response.data || !response.data.choices || response.data.choices.length === 0) {
+                console.error('Invalid API response structure (2nd call):', response.data);
+                return { type: 'error', error: 'Invalid API response structure (2nd call).' };
+            }
+            // Process the response from the second call
+            const secondChoice = response.data.choices[0];
+            if (secondChoice.message && secondChoice.message.content) {
+                console.log('Received content response after second call.');
+                return { type: 'content', content: secondChoice.message.content.trim() };
+            } else {
+                 console.warn('API response message after second call has no content:', secondChoice);
+                 return { type: 'error', error: 'Unexpected API response format after second call (no content).' };
+            }
+
+        } else if (firstMessage?.content) {
+            // Normal content response from the first call (no tool call needed)
+             console.log('Received content response from first call.');
+             return { type: 'content', content: firstMessage.content.trim() };
+        } else {
+             // Unexpected response from the first call
+             console.warn('API response message from first call has no content or tool_calls:', firstChoice);
+             return { type: 'error', error: 'Unexpected API response format from first call (no content/tool_call).' };
+        }
+
     } catch (error) {
-        console.error('Error calling API:', error.response ? error.response.data : error.message);
+        console.error('Error calling API:', error.response ? JSON.stringify(error.response.data) : error.message);
         const errorMessage = error.response?.data?.error?.message || error.message || 'Unknown API error';
         return { type: 'error', error: `API call failed: ${errorMessage}` };
     }
