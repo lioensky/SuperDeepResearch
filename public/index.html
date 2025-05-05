@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>深度研究器</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="chat-container">
+        <div id="chat-log">
+            <!-- 聊天记录将显示在这里 -->
+            <div class="message system">欢迎使用深度研究器！请输入您想研究的主题。</div>
+        </div>
+        <div id="input-area">
+            <textarea id="user-input" placeholder="输入您想研究的内容..." rows="3"></textarea>
+            <button id="send-button">发送</button>
+            <!-- 图片上传功能 (仅UI，无处理逻辑) -->
+            <input type="file" id="image-upload" accept="image/*" style="margin-left: 10px;">
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

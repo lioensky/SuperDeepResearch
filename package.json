@@ -1,0 +1,26 @@
+{
+  "name": "deep-research-app",
+  "version": "1.0.0",
+  "description": "An application to conduct deep research using AI models and web search.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "npx nodemon src/server.js"
+  },
+  "keywords": [
+    "ai",
+    "research",
+    "llm",
+    "gemini"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.7.2",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  }
+}
