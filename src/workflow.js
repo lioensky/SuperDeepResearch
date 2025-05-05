@@ -126,55 +126,23 @@ async function callThinkModelWithSearchHandling(messages, temperature, maxTokens
     console.log(`Calling ThinkModel (${thinkModel}) with potential search...`);
     let apiReply = await apiHelper.callApi(thinkModel, messages, temperature, maxTokens, true); // Enable search tool
 
-    // Handle potential tool call (google_search) - Revised Handling
+    // Handle potential tool call (google_search) from ThinkModel
+    // If the API is supposed to handle search internally, receiving a tool_call might be unexpected.
+    // Log it for debugging, but don't try to execute it here. Assume the final reply should be content.
     if (apiReply.type === 'tool_call' && apiReply.tool_call.function.name === 'google_search') {
         const toolCall = apiReply.tool_call;
         const toolCallId = toolCall.id;
-        accumulatedInfo.push({ role: 'assistant', content: null, tool_calls: [toolCall] });
-
-        let searchQuery = "Default search query";
+        let searchQuery = "Unknown query";
         try {
             const functionArgs = JSON.parse(toolCall.function.arguments);
             searchQuery = functionArgs.query || searchQuery;
         } catch (e) {
-            console.warn(`ThinkModel tool call: Could not parse arguments: ${toolCall.function.arguments}. Error: ${e}`);
+            // Ignore parsing error
         }
-        console.log(`ThinkModel requested tool call: google_search with query "${searchQuery}" (ID: ${toolCallId})`);
-        addMessageToHistory('system', `模型 (ThinkModel) 请求使用 Google 搜索查询: "${searchQuery}"`, 'system');
-
-        // --- Simulate Tool Execution by asking FastModel for a summary ---
-        console.log(`Simulating search execution for "${searchQuery}" by asking FastModel...`);
-        const summaryMessages = [
-             { role: 'system', content: getFormattedTimePrompt() + "You are a helpful assistant providing concise summaries for search queries." },
-             { role: 'user', content: `Please provide a concise summary of information found regarding the search query: "${searchQuery}"` }
-        ];
-        // Use FastModel for quick summary, disable search for this meta-call
-        const summaryReply = await apiHelper.callApi(fastModel, summaryMessages, fastModelTemp, fastModelMaxTokens, false);
-        let searchToolResultContent = `Could not generate summary for "${searchQuery}".`; // Fallback
-        if (summaryReply.type === 'content') {
-             searchToolResultContent = summaryReply.content;
-             console.log(`Generated summary for tool result: ${searchToolResultContent.substring(0,100)}...`);
-        } else {
-             console.error(`Error generating summary for tool result: ${summaryReply.error}`);
-             searchToolResultContent = `Error generating summary: ${summaryReply.error}`;
-        }
-        // --- End Simulation ---
-
-        const messagesWithToolResult = [
-            ...messages,
-            { role: 'assistant', content: null, tool_calls: [toolCall] },
-            {
-                role: 'tool',
-                tool_call_id: toolCallId,
-                name: 'google_search',
-                content: searchToolResultContent // Use the generated summary as tool result
-            }
-        ];
-        accumulatedInfo.push({ role: 'tool', tool_call_id: toolCallId, name: 'google_search', content: searchToolResultContent });
-
-        console.log(`Calling ThinkModel API again with generated tool result...`);
-        // Call the API again, without forcing tool use
-        apiReply = await apiHelper.callApi(thinkModel, messagesWithToolResult, temperature, maxTokens, false);
+        console.warn(`ThinkModel unexpectedly requested tool call: google_search with query "${searchQuery}" (ID: ${toolCallId}). This might indicate an issue with the API's internal search handling.`);
+        addMessageToHistory('system', `警告：模型 (ThinkModel) 意外请求外部 Google 搜索查询: "${searchQuery}"。API 应内部处理。`, 'system');
+        // Return an error or a fallback message, as the expected content wasn't received.
+        return { type: 'error', error: 'ThinkModel unexpectedly requested an external search instead of providing content.' };
     }
 
     // Return the final reply
@@ -285,51 +253,22 @@ async function searchSingleKeyword(keyword) {
     let searchApiReply = await apiHelper.callApi(fastModel, searchMessages, fastModelTemp, fastModelMaxTokens, true);
     let finalSearchResultText = `搜索 [[${keyword}]] 时发生错误。`; // Default
 
-    // Handle potential tool call (google_search) - Revised Handling
+    // Handle potential tool call (google_search) from FastModel during search
+    // Since the API is expected to handle search internally, receiving a tool_call here is an error/unexpected state.
     if (searchApiReply.type === 'tool_call' && searchApiReply.tool_call.function.name === 'google_search') {
         const toolCall = searchApiReply.tool_call;
         const toolCallId = toolCall.id;
-        accumulatedInfo.push({ role: 'assistant', content: null, tool_calls: [toolCall] });
-
-        let searchQuery = keyword;
+        let searchQuery = keyword; // Default to the original keyword
         try {
             const functionArgs = JSON.parse(toolCall.function.arguments);
             searchQuery = functionArgs.query || keyword;
         } catch (e) {
-            console.warn(`FastModel tool call: Could not parse arguments for [[${keyword}]]: ${toolCall.function.arguments}. Error: ${e}`);
+           // Ignore parsing error
         }
-        console.log(`FastModel requested tool call: google_search with query "${searchQuery}" (ID: ${toolCallId})`);
-        addMessageToHistory('system', `模型 (FastModel) 请求使用 Google 搜索查询: "${searchQuery}"`, 'system');
-
-        // --- Simulate Tool Execution by asking FastModel for a summary ---
-        console.log(`Simulating search execution for "${searchQuery}" by asking FastModel...`);
-        const summaryMessages = [
-             { role: 'system', content: getFormattedTimePrompt() + "You are a helpful assistant providing concise summaries for search queries." },
-             { role: 'user', content: `Please provide a concise summary of information found regarding the search query: "${searchQuery}"` }
-        ];
-        // Use FastModel for quick summary, disable search for this meta-call
-        const summaryReply = await apiHelper.callApi(fastModel, summaryMessages, fastModelTemp, fastModelMaxTokens, false);
-        let searchToolResultContent = `Could not generate summary for "${searchQuery}".`; // Fallback
-        if (summaryReply.type === 'content') {
-             searchToolResultContent = summaryReply.content;
-             console.log(`Generated summary for tool result: ${searchToolResultContent.substring(0,100)}...`);
-        } else {
-             console.error(`Error generating summary for tool result: ${summaryReply.error}`);
-             searchToolResultContent = `Error generating summary: ${summaryReply.error}`;
-        }
-        // --- End Simulation ---
-
-
-        const messagesWithToolResult = [
-            ...searchMessages,
-            { role: 'assistant', content: null, tool_calls: [toolCall] },
-            { role: 'tool', tool_call_id: toolCallId, name: 'google_search', content: searchToolResultContent } // Use the generated summary
-        ];
-        accumulatedInfo.push({ role: 'tool', tool_call_id: toolCallId, name: 'google_search', content: searchToolResultContent });
-
-        console.log(`Calling FastModel API again with generated tool result for [[${keyword}]]...`);
-        // Call the API again, without forcing tool use
-        searchApiReply = await apiHelper.callApi(fastModel, messagesWithToolResult, fastModelTemp, fastModelMaxTokens, false);
+        console.error(`FastModel unexpectedly requested tool call during search for [[${keyword}]]: google_search with query "${searchQuery}" (ID: ${toolCallId}). The API should have performed the search internally.`);
+        addMessageToHistory('system', `错误：模型 (FastModel) 在搜索 [[${keyword}]] 时意外请求外部 Google 搜索查询: "${searchQuery}"。API 应内部处理。`, 'system');
+        // Return an error result for this keyword
+        return { keyword: keyword, result: `搜索 [[${keyword}]] 失败：模型意外请求外部工具调用，而不是返回搜索结果。` };
     }
 
     // Process final response (content or error)
